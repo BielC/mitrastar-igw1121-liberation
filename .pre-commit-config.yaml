@@ -1,0 +1,22 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: local
+    hooks:
+      - id: shell-syntax
+        name: Parse router shell scripts
+        entry: python3 tools/check_shell_syntax.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: public-files
+        name: Check public files for private captures and identifiers
+        entry: python3 tools/check_public_files.py
+        language: system
+        pass_filenames: false
+        always_run: true

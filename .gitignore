@@ -1,0 +1,24 @@
+# Router secrets, captures, and vendor firmware never belong in this repository.
+private/
+secrets/
+captures/
+backups/
+logs/
+.env
+.env.*
+pin
+pin.previous
+iccid
+iccid.previous
+*.pending
+*.xml
+*.bin
+*.elf
+*.7z
+*.log
+*.har
+*.cookies
+*known-hosts*
+__pycache__/
+*.pyc
+.DS_Store

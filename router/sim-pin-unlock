@@ -1,0 +1,132 @@
+#!/bin/sh
+# Verify the enrolled SIM once per boot, without changing PIN protection.
+umask 077
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+CONFIG=/etc/sim-pin-unlock
+RUNTIME=/tmp/sim-pin-unlock
+CLI=/usr/bin/mipc_wan_cli
+TIMEOUT=/usr/bin/timeout
+WAIT_SECONDS=300
+POLL_SECONDS=5
+
+log() {
+    printf '%s\n' "$1" > "$RUNTIME/status"
+    logger -t sim-pin-unlock "$1"
+}
+
+now() {
+    cut -d. -f1 /proc/uptime
+}
+
+sim_status() {
+    "$TIMEOUT" -s KILL 12 "$CLI" --show_sim_status 2>/dev/null |
+        tr -d '\r\n'
+}
+
+sim_identity() {
+    "$TIMEOUT" -s KILL 12 "$CLI" --at_cmd 'AT+CCID' 2>/dev/null |
+        awk '/^[ \t]*\+CCID:/ {
+            sub(/^[ \t]*\+CCID:[ \t]*/, "")
+            gsub(/[ \t\r]/, "")
+            sub(/[fF]$/, "")
+            if ($0 ~ /^[0-9]+$/ && length($0) >= 18 && length($0) <= 22)
+                print
+        }'
+}
+
+[ "$(id -u)" = 0 ] || exit 1
+[ -x "$CLI" ] && [ -x "$TIMEOUT" ] || exit 1
+mkdir -p "$RUNTIME" || exit 1
+mkdir "$RUNTIME/lock" 2>/dev/null || exit 0
+trap 'rmdir "$RUNTIME/lock" 2>/dev/null' EXIT
+trap 'exit 1' HUP INT TERM
+
+if [ -e "$RUNTIME/attempted" ]; then
+    log 'PIN verification was already attempted this boot; stopping.'
+    exit 0
+fi
+
+if [ -e "$CONFIG/verification.pending" ]; then
+    log 'An earlier PIN verification failed or was interrupted; manual review required.'
+    exit 1
+fi
+
+pin=$(cat "$CONFIG/pin" 2>/dev/null) || exit 1
+expected=$(cat "$CONFIG/iccid" 2>/dev/null) || exit 1
+case "$pin" in ''|*[!0-9]*) log 'Invalid private PIN configuration; stopping.'; exit 1;; esac
+[ "${#pin}" -ge 4 ] && [ "${#pin}" -le 8 ] || exit 1
+case "$expected" in ''|*[!0-9]*) log 'Invalid private SIM identity configuration; stopping.'; exit 1;; esac
+[ "${#expected}" -ge 18 ] && [ "${#expected}" -le 22 ] || exit 1
+
+deadline=$(( $(now) + WAIT_SECONDS ))
+while [ "$(now)" -lt "$deadline" ]; do
+    state=$(sim_status)
+    case "$state" in
+        MIPC_SIM_STATUS_READY|MIPC_SIM_STATUS_COMPLETE_READY)
+            log 'SIM is already ready; no PIN was submitted.'
+            exit 0
+            ;;
+        MIPC_SIM_STATUS_SIM_PIN)
+            actual=$(sim_identity)
+            if [ -n "$actual" ]; then
+                if [ "$actual" != "$expected" ]; then
+                    log 'SIM identity differs from the enrolled card; no PIN was submitted.'
+                    exit 1
+                fi
+
+                # Recheck after reading ICCID to avoid acting on an old status.
+                state=$(sim_status)
+                case "$state" in
+                    MIPC_SIM_STATUS_READY|MIPC_SIM_STATUS_COMPLETE_READY)
+                        log 'SIM became ready; no PIN was submitted.'
+                        exit 0
+                        ;;
+                    MIPC_SIM_STATUS_SIM_PIN) ;;
+                    *) log 'SIM status changed; no PIN was submitted.'; exit 1;;
+                esac
+
+                # If the vendor retry counter is available, preserve the last try.
+                remaining=$(awk '$1 == "DEVST_SIM_PIN" {print $2}' /tmp/.SimInfo 2>/dev/null)
+                case "$remaining" in
+                    0|1) log 'Too few PIN attempts remain; manual review required.'; exit 1;;
+                esac
+
+                # Write both guards BEFORE the modem call. A crash must not retry.
+                : > "$RUNTIME/attempted" || exit 1
+                (set -C; : > "$CONFIG/verification.pending") 2>/dev/null || exit 1
+                sync
+                log 'Enrolled SIM requires a PIN; making one verification attempt.'
+                "$TIMEOUT" -s KILL 15 "$CLI" --sim_verify_pin "$pin" >/dev/null 2>&1
+                pin=
+
+                # Clear the persistent guard only after confirmed modem readiness.
+                verify_deadline=$(( $(now) + 40 ))
+                while [ "$(now)" -lt "$verify_deadline" ]; do
+                    state=$(sim_status)
+                    case "$state" in
+                        MIPC_SIM_STATUS_READY|MIPC_SIM_STATUS_COMPLETE_READY)
+                            rm -f "$CONFIG/verification.pending"
+                            sync
+                            log 'PIN accepted; SIM is ready.'
+                            exit 0
+                            ;;
+                        *PUK*|*BLOCK*) break;;
+                    esac
+                    sleep 2
+                done
+                log 'PIN verification did not confirm readiness; further automatic attempts disabled.'
+                exit 1
+            fi
+            ;;
+        *PUK*|*BLOCK*)
+            log 'SIM requires manual recovery; no PIN was submitted.'
+            exit 1
+            ;;
+    esac
+    sleep "$POLL_SECONDS"
+done
+
+log 'Modem or SIM identity was not ready within the startup deadline; no PIN was submitted.'
+exit 1

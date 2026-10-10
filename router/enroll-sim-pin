@@ -1,0 +1,103 @@
+#!/bin/sh
+# Enroll a known PIN and the inserted SIM privately; never submit the PIN.
+umask 077
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+CONFIG=/etc/sim-pin-unlock
+RUNTIME=/tmp/sim-pin-unlock
+CLI=/usr/bin/mipc_wan_cli
+TIMEOUT=/usr/bin/timeout
+tty_mode=
+stage=
+locked=0
+
+die() {
+    printf '%s\n' "$1" >&2
+    exit 1
+}
+
+cleanup() {
+    result=$?
+    trap - EXIT
+    if [ -n "$tty_mode" ]; then
+        stty "$tty_mode" < /dev/tty 2>/dev/null || :
+    fi
+    [ -z "$stage" ] || rm -rf "$stage"
+    [ "$locked" = 0 ] || rmdir "$RUNTIME/lock" 2>/dev/null
+    exit "$result"
+}
+
+identity() {
+    "$TIMEOUT" -s KILL 12 "$CLI" --at_cmd 'AT+CCID' 2>/dev/null |
+        awk '/^[ \t]*\+CCID:/ {
+            sub(/^[ \t]*\+CCID:[ \t]*/, "")
+            gsub(/[ \t\r]/, "")
+            sub(/[fF]$/, "")
+            if ($0 ~ /^[0-9]+$/ && length($0) >= 18 && length($0) <= 22)
+                print
+        }'
+}
+
+[ "$(id -u)" = 0 ] || die 'Run this on the router as root.'
+[ -x "$CLI" ] && [ -x "$TIMEOUT" ] || die 'Required modem tools are missing.'
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+mkdir -p "$RUNTIME" || exit 1
+chmod 700 "$RUNTIME" || exit 1
+mkdir "$RUNTIME/lock" 2>/dev/null || die 'Another enrollment or verification is running.'
+locked=1
+[ ! -e "$CONFIG/verification.pending" ] || die 'A previous operation is unconfirmed. Review it before re-enrolling.'
+
+state=$("$TIMEOUT" -s KILL 12 "$CLI" --show_sim_status 2>/dev/null | tr -d '\r\n')
+case "$state" in
+    MIPC_SIM_STATUS_SIM_PIN) ;;
+    MIPC_SIM_STATUS_READY|MIPC_SIM_STATUS_COMPLETE_READY)
+        protection=$("$TIMEOUT" -s KILL 12 "$CLI" --at_cmd 'AT+CLCK="SC",2' 2>/dev/null | tr -d '\r')
+        printf '%s\n' "$protection" | grep -q '^+CLCK: 1$' ||
+            die 'Enable SIM PIN protection on a phone first; this firmware can lock cards with protection off.'
+        ;;
+    *) die 'SIM must be ready or waiting for its PIN. Do not use this for PUK recovery.';;
+esac
+
+iccid=$(identity)
+case "$iccid" in ''|*[!0-9]*) die 'Could not read exactly one SIM identity; no enrollment was changed.';; esac
+[ "${#iccid}" -ge 18 ] && [ "${#iccid}" -le 22 ] || die 'Invalid SIM identity.'
+tty_mode=$(stty -g < /dev/tty 2>/dev/null) || die 'A terminal is required. Connect using ssh -t.'
+stty -echo < /dev/tty || die 'Could not hide terminal input.'
+printf 'Known working SIM PIN (hidden): ' > /dev/tty
+IFS= read -r pin < /dev/tty || exit 1
+printf '\nRepeat PIN (hidden): ' > /dev/tty
+IFS= read -r repeat < /dev/tty || exit 1
+printf '\n' > /dev/tty
+stty "$tty_mode" < /dev/tty || exit 1
+tty_mode=
+[ "$pin" = "$repeat" ] || die 'PIN entries differ; no enrollment was changed.'
+case "$pin" in ''|*[!0-9]*) die 'PIN must contain 4 to 8 decimal digits.';; esac
+[ "${#pin}" -ge 4 ] && [ "${#pin}" -le 8 ] || die 'PIN must contain 4 to 8 decimal digits.'
+[ "$(identity)" = "$iccid" ] || die 'SIM changed during enrollment; stopping.'
+
+mkdir -p "$CONFIG" || exit 1
+chmod 700 "$CONFIG" || exit 1
+stage=$(mktemp -d "$CONFIG/.enroll.XXXXXX") || exit 1
+printf '%s\n' "$pin" > "$stage/pin" || exit 1
+printf '%s\n' "$iccid" > "$stage/iccid" || exit 1
+pin=
+repeat=
+chmod 600 "$stage/pin" "$stage/iccid" || exit 1
+
+# Use the persistent stop guard while updating the pair. A crash must not
+# leave the service able to use a new identity with the previous card's PIN.
+(set -C; : > "$CONFIG/verification.pending") 2>/dev/null || exit 1
+sync
+for name in pin iccid; do
+    if [ -f "$CONFIG/$name" ]; then
+        cp "$CONFIG/$name" "$CONFIG/$name.previous" || exit 1
+        chmod 600 "$CONFIG/$name.previous" || exit 1
+    fi
+    mv "$stage/$name" "$CONFIG/$name" || exit 1
+done
+sync
+rm -f "$CONFIG/verification.pending" || exit 1
+sync
+printf '%s\n' 'SIM enrolled. No PIN was submitted. Enrollment does not verify PIN correctness.'
+printf '%s\n' 'Keep any attempt marker from this boot; the startup service will run on the next boot.'
