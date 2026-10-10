@@ -1,4 +1,4 @@
-# MitraStar IGW-1121 SIM PIN fix
+# MitraStar IGW-1121 Liberation
 
 Restore SIM connectivity on a **Movistar MitraStar IGW-1121GX2X2-Mv3** when
 the SIM works in a phone but the router cannot unlock it through its web panel.
@@ -59,8 +59,8 @@ different model's firmware to follow this guide.
 4. On your **computer**, clone the repository and copy only the router scripts:
 
    ```sh
-   git clone https://github.com/BielC/mitrastar-igw1121-sim-pin-fix.git
-   cd mitrastar-igw1121-sim-pin-fix
+   git clone https://github.com/BielC/mitrastar-igw1121-liberation.git
+   cd mitrastar-igw1121-liberation
    tar -C router -cf - install.sh sim-pin-unlock enroll-sim-pin zzz_sim_pin_unlock |
      ssh 1234@192.168.8.1 'umask 077; mkdir /tmp/igw1121-pin-fix && tar -xf - -C /tmp/igw1121-pin-fix'
    ssh -t 1234@192.168.8.1 '/bin/sh /tmp/igw1121-pin-fix/install.sh'

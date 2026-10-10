@@ -32,8 +32,8 @@ operador o contrato se puedan resolver con este método.
 4. Ejecuta en tu **ordenador**:
 
    ```sh
-   git clone https://github.com/BielC/mitrastar-igw1121-sim-pin-fix.git
-   cd mitrastar-igw1121-sim-pin-fix
+   git clone https://github.com/BielC/mitrastar-igw1121-liberation.git
+   cd mitrastar-igw1121-liberation
    tar -C router -cf - install.sh sim-pin-unlock enroll-sim-pin zzz_sim_pin_unlock |
      ssh 1234@192.168.8.1 'umask 077; mkdir /tmp/igw1121-pin-fix && tar -xf - -C /tmp/igw1121-pin-fix'
    ssh -t 1234@192.168.8.1 '/bin/sh /tmp/igw1121-pin-fix/install.sh'
