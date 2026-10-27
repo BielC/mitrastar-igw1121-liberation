@@ -110,6 +110,16 @@ also be removed. No vendor file needs restoring because none was overwritten.
 
 ## SIM profiles
 
+If setup opens a `>` prompt and reports `Can't find command`, it reached the
+vendor console instead of the enrollment helper. Update the checkout and rerun
+`router-cli`; it disables remote PTY allocation and handles PIN input locally.
+To leave a stuck interactive SSH session, press Enter, then type `~.`.
+The OpenSSH post-quantum warning is separate from this console issue.
+
+On macOS, an SSH password saved with service `router-cli.ssh` and account
+`user@router` is retrieved from Keychain. It is never embedded in the scripts.
+If no saved credential exists, SSH uses its normal authentication prompts.
+
 Named profiles store their PIN/ICCID pairs in `/etc/sim-pin-unlock/profiles/NAME`.
 The selected pair is copied into the existing active configuration. A name does
 not identify the carrier or change the APN. Onboarding saves `carrier`, `apn`,

@@ -64,6 +64,17 @@ After installing the service, select a profile from the repository on your compu
 ./router-cli digi1
 ```
 
+Requires Python 3 on your computer. Setup keeps the terminal local and uses SSH
+without a remote PTY, which avoids the firmware's restricted `>` console.
+On macOS, you can save the SSH password in Keychain once (enter the router's
+password at the hidden prompt, not the SIM PIN):
+
+```sh
+security add-generic-password -a '1234@192.168.8.1' -s router-cli.ssh -U -w
+```
+
+`router-cli` then reads it from Keychain. Host-key questions still need your answer.
+
 First use asks which APN to use: **DIGI Spain, O2 Spain, custom, or keep current**.
 It then asks for the known PIN twice and reads the inserted SIM's ICCID.
 The APN choice and PIN/ICCID are saved in root-only files under

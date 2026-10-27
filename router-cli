@@ -27,12 +27,30 @@ case "$target" in
     ''|-*|*[!a-zA-Z0-9_.@:-]*) printf '%s\n' 'Invalid SSH target.' >&2; exit 1;;
 esac
 [ -f "$SOURCE/router/enroll-sim-pin" ] || { printf '%s\n' 'Keep router-cli beside the router directory.' >&2; exit 1; }
+command -v python3 >/dev/null || { printf '%s\n' 'Python 3 is required on your computer.' >&2; exit 1; }
+if [ "$(uname -s)" = Darwin ] && /usr/bin/security find-generic-password \
+    -a "$target" -s router-cli.ssh >/dev/null 2>&1; then
+    ROUTER_CLI_SSH_TARGET=$target
+    SSH_ASKPASS="$SOURCE/tools/router_ssh_askpass.sh"
+    SSH_ASKPASS_REQUIRE=force
+    DISPLAY=${DISPLAY:-router-cli}
+    export ROUTER_CLI_SSH_TARGET SSH_ASKPASS SSH_ASKPASS_REQUIRE DISPLAY
+fi
 
 session=$(mktemp -d "${TMPDIR:-/tmp}/router-cli.XXXXXX")
 remote=
 connect() {
-    ssh -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+    dialog=0
+    if [ "${1-}" = --dialog ]; then
+        dialog=1
+        shift
+    fi
+    set -- ssh -T -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
         -o ControlMaster=auto -o "ControlPath=$session/ssh" -o ControlPersist=60 "$@"
+    if [ "$dialog" = 1 ]; then
+        set -- python3 "$SOURCE/tools/router_dialog.py" "$@"
+    fi
+    "$@"
 }
 cleanup() {
     result=$?
@@ -49,7 +67,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
-candidate=$(connect "$target" 'umask 077; mktemp -d /tmp/router-cli.XXXXXX')
+candidate=$(connect "$target" 'umask 077; mktemp -d /tmp/router-cli.XXXXXX' </dev/null)
 case "$candidate" in
     /tmp/router-cli.*) ;;
     *) printf '%s\n' 'Unexpected staging directory; stopping.' >&2; exit 1;;
@@ -61,12 +79,12 @@ esac
 remote=$candidate
 
 connect "$target" "cat > '$remote/enroll-sim-pin'" < "$SOURCE/router/enroll-sim-pin"
-connect -t "$target" "
+connect --dialog "$target" "
     test -x /usr/sbin/sim-pin-unlock && test -x /etc/init.d/zzz_sim_pin_unlock || {
         printf '%s\\n' 'Install the startup service first; see the README.' >&2
         exit 1
     }
-    /bin/sh '$remote/enroll-sim-pin' '$profile' || exit 1
+    /bin/sh '$remote/enroll-sim-pin' --stdin '$profile' || exit 1
     /etc/init.d/zzz_sim_pin_unlock enable && /etc/init.d/zzz_sim_pin_unlock enabled || exit 1
     /usr/sbin/sim-pin-unlock
     result=\$?

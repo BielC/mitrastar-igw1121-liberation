@@ -24,6 +24,9 @@ with (root / 'calls').open('a') as out:
 control = next(value.split('=', 1)[1] for value in args if value.startswith('ControlPath='))
 if '-O' in args:
     sys.exit(0)
+if '-t' in args or '-tt' in args or '-T' not in args:
+    print('> restricted vendor console', flush=True)
+    sys.exit(55)
 command = args[-1]
 if 'mktemp -d' in command:
     sock = socket.socket(socket.AF_UNIX)
@@ -51,7 +54,7 @@ else:
         path = self.root / 'calls'
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
-    def test_uploads_helper_and_uses_terminal_for_profile_selection(self):
+    def test_uses_shell_commands_without_opening_restricted_vendor_console(self):
         result = self.run_cli('digi1', '1234@router.local')
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertEqual((self.root / 'upload').read_bytes(), (ROOT / 'router/enroll-sim-pin').read_bytes())
@@ -60,7 +63,9 @@ else:
         self.assertIn('sim-pin-unlock', activation)
         self.assertNotRegex(activation, r'(?m)^\s*(?:/sbin/)?reboot\b')
         self.assertNotIn('cmctl send', activation)
-        self.assertTrue(any('-t' in call and '1234@router.local' in call for call in self.calls()))
+        self.assertIn('--stdin', activation)
+        self.assertTrue(all('-T' in call for call in self.calls() if '-O' not in call))
+        self.assertTrue(any('1234@router.local' in call for call in self.calls()))
         self.assertTrue(any('-O' in call and 'exit' in call for call in self.calls()))
 
     def test_upload_failure_never_activates_profile(self):

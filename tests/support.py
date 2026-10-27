@@ -99,21 +99,24 @@ esac''')
         path = self.root / "calls"
         return len(path.read_text().splitlines()) if path.exists() else 0
 
-    def terminal(self, name="enroll-sim-pin", entries=(PIN, PIN), arguments=(), apn_answers=("4",)):
+    def terminal(self, name="enroll-sim-pin", entries=(PIN, PIN), arguments=(), apn_answers=("4",), dialog=False):
         master, slave = pty.openpty()
 
         def session():
             os.setsid()
             fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
+        command = ["/bin/sh", str(self.script(name)), *arguments]
+        if dialog:
+            command = [sys.executable, str(ROOT / "tools/router_dialog.py"), *command]
         process = subprocess.Popen(
             [sys.executable, "-c", "\n".join([
                 "import subprocess, sys, termios",
-                "result = subprocess.run(['/bin/sh', *sys.argv[1:]])",
+                "result = subprocess.run(sys.argv[1:])",
                 "echo = bool(termios.tcgetattr(0)[3] & termios.ECHO)",
                 "print('TEST_ECHO_ENABLED=' + str(int(echo)), flush=True)",
                 "sys.exit(result.returncode)",
-            ]), str(self.script(name)), *arguments], stdin=slave, stdout=slave, stderr=slave,
+            ]), *command], stdin=slave, stdout=slave, stderr=slave,
             env=dict(os.environ, TEST_ROOT=str(self.root)), preexec_fn=session,
         )
         output = b""

@@ -11,12 +11,19 @@ tty_mode=
 stage=
 locked=0
 profile=
+stdio=0
+prompt_channel=/dev/tty
+if [ "${1-}" = --stdin ]; then
+    stdio=1
+    prompt_channel=/dev/stdout
+    shift
+fi
 profile_name=${1-}
 carrier=legacy
 apn=
 roaming=unchanged
 
-[ "$#" -le 1 ] || { printf '%s\n' 'Usage: enroll-sim-pin [profile-name]' >&2; exit 1; }
+[ "$#" -le 1 ] || { printf '%s\n' 'Usage: enroll-sim-pin [--stdin] [profile-name]' >&2; exit 1; }
 if [ -n "$profile_name" ]; then
     case "$profile_name" in
         *[!a-zA-Z0-9_-]*|-*|_*) printf '%s\n' 'Use a profile name starting with a letter or digit, followed by letters, digits, - or _.' >&2; exit 1;;
@@ -28,6 +35,14 @@ fi
 die() {
     printf '%s\n' "$1" >&2
     exit 1
+}
+
+read_answer() {
+    if [ "$stdio" = 1 ]; then
+        IFS= read -r "$1"
+    else
+        IFS= read -r "$1" < /dev/tty
+    fi
 }
 
 validate_apn() {
@@ -53,18 +68,18 @@ choose_apn() {
         '  2) O2 Spain: telefonica.es, PAP, username/password telefonica' \
         '  3) Custom APN' \
         '  4) Keep current APN settings' \
-        'The choice is saved as guidance; apply it in the router web panel.' > /dev/tty
-    printf 'Carrier [1-4]: ' > /dev/tty
-    IFS= read -r choice < /dev/tty || exit 1
+        'The choice is saved as guidance; apply it in the router web panel.' > "$prompt_channel"
+    printf 'Carrier [1-4]: ' > "$prompt_channel"
+    read_answer choice || exit 1
     case "$choice" in
         1) carrier=digi; apn=internet.digimobil.es; roaming=enabled;;
         2) carrier=o2; apn=telefonica.es; roaming=carrier;;
         3)
             carrier=custom
-            printf 'Custom APN: ' > /dev/tty
-            IFS= read -r apn < /dev/tty || exit 1
-            printf 'Data roaming [y/n]: ' > /dev/tty
-            IFS= read -r choice < /dev/tty || exit 1
+            printf 'Custom APN: ' > "$prompt_channel"
+            read_answer apn || exit 1
+            printf 'Data roaming [y/n]: ' > "$prompt_channel"
+            read_answer choice || exit 1
             case "$choice" in
                 y|Y|yes|YES) roaming=enabled;;
                 n|N|no|NO) roaming=disabled;;
@@ -157,16 +172,22 @@ if [ -n "$profile" ] && { [ -e "$profile" ] || [ -L "$profile" ]; }; then
         validate_apn
     fi
 else
-    tty_mode=$(stty -g < /dev/tty 2>/dev/null) || die 'A terminal is required. Connect using ssh -t.'
+    if [ "$stdio" = 0 ]; then
+        tty_mode=$(stty -g < /dev/tty 2>/dev/null) || die 'A terminal is required. Use router-cli from your computer.'
+    fi
     [ -z "$profile" ] || choose_apn
-    stty -echo < /dev/tty || die 'Could not hide terminal input.'
-    printf 'Known working SIM PIN (hidden): ' > /dev/tty
-    IFS= read -r pin < /dev/tty || exit 1
-    printf '\nRepeat PIN (hidden): ' > /dev/tty
-    IFS= read -r repeat < /dev/tty || exit 1
-    printf '\n' > /dev/tty
-    stty "$tty_mode" < /dev/tty || exit 1
-    tty_mode=
+    if [ "$stdio" = 0 ]; then
+        stty -echo < /dev/tty || die 'Could not hide terminal input.'
+    fi
+    printf 'Known working SIM PIN (hidden): ' > "$prompt_channel"
+    read_answer pin || exit 1
+    printf '\nRepeat PIN (hidden): ' > "$prompt_channel"
+    read_answer repeat || exit 1
+    printf '\n' > "$prompt_channel"
+    if [ "$stdio" = 0 ]; then
+        stty "$tty_mode" < /dev/tty || exit 1
+        tty_mode=
+    fi
     [ "$pin" = "$repeat" ] || die 'PIN entries differ; no enrollment was changed.'
 fi
 case "$pin" in ''|*[!0-9]*) die 'PIN must contain 4 to 8 decimal digits.';; esac
