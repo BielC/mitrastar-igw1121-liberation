@@ -33,7 +33,8 @@ if 'mktemp -d' in command:
     sock.bind(control)
     print(os.environ.get('STAGING', '/tmp/router-cli.testABC'))
 elif command.startswith('cat >'):
-    (root / 'upload').write_bytes(sys.stdin.buffer.read())
+    name = 'profile-upload' if 'select-sim-profile' in command else 'upload'
+    (root / name).write_bytes(sys.stdin.buffer.read())
     sys.exit(int(os.environ.get('UPLOAD_EXIT', '0')))
 elif command.startswith('rm -rf'):
     pass
@@ -58,12 +59,14 @@ else:
         result = self.run_cli('digi1', '1234@router.local')
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertEqual((self.root / 'upload').read_bytes(), (ROOT / 'router/enroll-sim-pin').read_bytes())
+        self.assertEqual((self.root / 'profile-upload').read_bytes(), (ROOT / 'router/select-sim-profile').read_bytes())
         activation = (self.root / 'activation').read_text()
         self.assertIn("'digi1'", activation)
-        self.assertIn('sim-pin-unlock', activation)
+        self.assertIn('select-sim-profile', activation)
         self.assertNotRegex(activation, r'(?m)^\s*(?:/sbin/)?reboot\b')
         self.assertNotIn('cmctl send', activation)
-        self.assertIn('--stdin', activation)
+        self.assertTrue(activation.startswith('/bin/sh '))
+        self.assertNotIn('\n', activation)
         self.assertTrue(all('-T' in call for call in self.calls() if '-O' not in call))
         self.assertTrue(any('1234@router.local' in call for call in self.calls()))
         self.assertTrue(any('-O' in call and 'exit' in call for call in self.calls()))

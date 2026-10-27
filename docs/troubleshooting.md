@@ -116,6 +116,11 @@ vendor console instead of the enrollment helper. Update the checkout and rerun
 To leave a stuck interactive SSH session, press Enter, then type `~.`.
 The OpenSSH post-quantum warning is separate from this console issue.
 
+If an older version prints only that warning and then blank lines, update it.
+Setup now uses a direct `/bin/sh` script invocation instead of a multiline SSH
+command and prints connection, upload, and setup progress. Re-selecting a ready
+SIM reports readiness without making another PIN attempt.
+
 On macOS, an SSH password saved with service `router-cli.ssh` and account
 `user@router` is retrieved from Keychain. It is never embedded in the scripts.
 If no saved credential exists, SSH uses its normal authentication prompts.

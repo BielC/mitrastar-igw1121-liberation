@@ -1,0 +1,25 @@
+#!/bin/sh
+# Enter the vendor shell through one explicit command, with no leading newline.
+SOURCE=$(CDPATH= cd "$(dirname "$0")" && pwd) || exit 1
+printf '%s\n' '[router-cli] Router shell ready; checking SIM...'
+test -x /usr/sbin/sim-pin-unlock && test -x /etc/init.d/zzz_sim_pin_unlock || {
+    printf '%s\n' 'Install the startup service first; see the README.' >&2
+    exit 1
+}
+/bin/sh "$SOURCE/enroll-sim-pin" --stdin "$@" || exit 1
+/etc/init.d/zzz_sim_pin_unlock enable && /etc/init.d/zzz_sim_pin_unlock enabled || exit 1
+printf '%s\n' '[router-cli] Profile selected; checking the guarded unlock status...'
+state=$(/usr/bin/timeout -s KILL 12 /usr/bin/mipc_wan_cli --show_sim_status 2>/dev/null | tr -d '\r\n')
+case "$state" in
+    MIPC_SIM_STATUS_READY|MIPC_SIM_STATUS_COMPLETE_READY)
+        result=0
+        printf '%s\n' 'SIM is already ready; no PIN was submitted.'
+        ;;
+    *)
+        /usr/sbin/sim-pin-unlock
+        result=$?
+        cat /tmp/sim-pin-unlock/status
+        ;;
+esac
+printf '%s\n' 'Profile saved for startup. APN settings are unchanged; no reboot was requested.'
+exit "$result"

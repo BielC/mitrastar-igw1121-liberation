@@ -67,6 +67,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
+printf '%s\n' '[router-cli] Connecting to router...' >&2
 candidate=$(connect "$target" 'umask 077; mktemp -d /tmp/router-cli.XXXXXX' </dev/null)
 case "$candidate" in
     /tmp/router-cli.*) ;;
@@ -78,17 +79,8 @@ case "$suffix" in
 esac
 remote=$candidate
 
+printf '%s\n' '[router-cli] Uploading setup helpers...' >&2
 connect "$target" "cat > '$remote/enroll-sim-pin'" < "$SOURCE/router/enroll-sim-pin"
-connect --dialog "$target" "
-    test -x /usr/sbin/sim-pin-unlock && test -x /etc/init.d/zzz_sim_pin_unlock || {
-        printf '%s\\n' 'Install the startup service first; see the README.' >&2
-        exit 1
-    }
-    /bin/sh '$remote/enroll-sim-pin' --stdin '$profile' || exit 1
-    /etc/init.d/zzz_sim_pin_unlock enable && /etc/init.d/zzz_sim_pin_unlock enabled || exit 1
-    /usr/sbin/sim-pin-unlock
-    result=\$?
-    cat /tmp/sim-pin-unlock/status
-    printf '%s\\n' 'Profile saved for startup. APN settings are unchanged; no reboot was requested.'
-    exit \$result
-"
+connect "$target" "cat > '$remote/select-sim-profile'" < "$SOURCE/router/select-sim-profile"
+printf '%s\n' '[router-cli] Opening SIM setup...' >&2
+connect --dialog "$target" "/bin/sh '$remote/select-sim-profile' '$profile'"
