@@ -56,17 +56,27 @@ installer and enrollment helper have simulated-router tests only.
    `apnConnStatus: 1` confirms a data session; check internet access separately.
    To handle a pending PIN before rebooting, run `/usr/sbin/sim-pin-unlock` in SSH.
 
-## Replacing the SIM
+## SIM profiles
 
-Enable protection and confirm the new card's PIN on a phone. Insert it, then
-run from your computer:
+After installing the service, select a profile from the repository on your computer:
 
 ```sh
-ssh -t 1234@192.168.8.1 /usr/sbin/enroll-sim-pin
+./router-cli digi1
 ```
 
-Reboot afterward. **Re-enroll even if the PIN is unchanged:** the script matches
-ICCID and stores one card at a time. Previous enrollment is preserved privately.
+First use asks for the known PIN twice and reads the inserted SIM's ICCID.
+Both are saved in root-only files under `/etc/sim-pin-unlock/profiles/digi1`.
+Later uses select that saved pair without asking for its PIN. A different SIM
+needs another name, such as `digi2`; a mismatched card is refused.
+
+The command enables startup and runs the existing guarded verifier once. It
+never reboots or clears retry guards. If an attempt already happened this boot,
+reboot when convenient. The selected profile works at startup without your computer.
+An optional second argument sets the SSH target: `./router-cli digi1 1234@router.local`.
+
+**Profiles select PIN/ICCID only.** Keep PIN protection enabled and set the carrier
+APN separately. [DIGI Spain](https://www.digimobil.es/configurar-internet) specifies
+`internet.digimobil.es`, mobile data enabled, and data roaming enabled.
 
 ## Safeguards and privacy
 

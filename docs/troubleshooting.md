@@ -108,6 +108,14 @@ rm -rf /etc/sim-pin-unlock /tmp/sim-pin-unlock
 The uploaded copy in `/tmp/igw1121-pin-fix` contains only public scripts and can
 also be removed. No vendor file needs restoring because none was overwritten.
 
+## SIM profiles
+
+Named profiles store their PIN/ICCID pairs in `/etc/sim-pin-unlock/profiles/NAME`.
+The selected pair is copied into the existing active configuration. A name does
+not identify the carrier or change the APN. Use a new name for another SIM or a
+changed PIN; an existing profile is never silently overwritten. Profile selection
+also refuses any unresolved failure guard and preserves the per-boot attempt marker.
+
 ## Sharing diagnostics
 
 Share only symbolic states and the custom status message. Raw AT output,

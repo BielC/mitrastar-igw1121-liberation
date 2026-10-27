@@ -10,6 +10,17 @@ TIMEOUT=/usr/bin/timeout
 tty_mode=
 stage=
 locked=0
+profile=
+profile_name=${1-}
+
+[ "$#" -le 1 ] || { printf '%s\n' 'Usage: enroll-sim-pin [profile-name]' >&2; exit 1; }
+if [ -n "$profile_name" ]; then
+    case "$profile_name" in
+        *[!a-zA-Z0-9_-]*|-*|_*) printf '%s\n' 'Use a profile name starting with a letter or digit, followed by letters, digits, - or _.' >&2; exit 1;;
+    esac
+    [ "${#profile_name}" -le 48 ] || exit 1
+    profile="$CONFIG/profiles/$profile_name"
+fi
 
 die() {
     printf '%s\n' "$1" >&2
@@ -40,6 +51,7 @@ identity() {
 
 [ "$(id -u)" = 0 ] || die 'Run this on the router as root.'
 [ -x "$CLI" ] && [ -x "$TIMEOUT" ] || die 'Required modem tools are missing.'
+[ -z "$profile" ] || [ ! -L "$CONFIG/profiles" ] || die 'Invalid profiles directory.'
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 mkdir -p "$RUNTIME" || exit 1
@@ -62,16 +74,25 @@ esac
 iccid=$(identity)
 case "$iccid" in ''|*[!0-9]*) die 'Could not read exactly one SIM identity; no enrollment was changed.';; esac
 [ "${#iccid}" -ge 18 ] && [ "${#iccid}" -le 22 ] || die 'Invalid SIM identity.'
-tty_mode=$(stty -g < /dev/tty 2>/dev/null) || die 'A terminal is required. Connect using ssh -t.'
-stty -echo < /dev/tty || die 'Could not hide terminal input.'
-printf 'Known working SIM PIN (hidden): ' > /dev/tty
-IFS= read -r pin < /dev/tty || exit 1
-printf '\nRepeat PIN (hidden): ' > /dev/tty
-IFS= read -r repeat < /dev/tty || exit 1
-printf '\n' > /dev/tty
-stty "$tty_mode" < /dev/tty || exit 1
-tty_mode=
-[ "$pin" = "$repeat" ] || die 'PIN entries differ; no enrollment was changed.'
+if [ -n "$profile" ] && { [ -e "$profile" ] || [ -L "$profile" ]; }; then
+    [ -d "$profile" ] && [ ! -L "$profile" ] || die 'Invalid profile directory.'
+    for name in pin iccid; do
+        [ -f "$profile/$name" ] && [ ! -L "$profile/$name" ] || die 'Profile is incomplete or contains a symbolic link.'
+    done
+    [ "$(cat "$profile/iccid")" = "$iccid" ] || die 'This profile belongs to another SIM. Use that card or a new profile name.'
+    pin=$(cat "$profile/pin") || exit 1
+else
+    tty_mode=$(stty -g < /dev/tty 2>/dev/null) || die 'A terminal is required. Connect using ssh -t.'
+    stty -echo < /dev/tty || die 'Could not hide terminal input.'
+    printf 'Known working SIM PIN (hidden): ' > /dev/tty
+    IFS= read -r pin < /dev/tty || exit 1
+    printf '\nRepeat PIN (hidden): ' > /dev/tty
+    IFS= read -r repeat < /dev/tty || exit 1
+    printf '\n' > /dev/tty
+    stty "$tty_mode" < /dev/tty || exit 1
+    tty_mode=
+    [ "$pin" = "$repeat" ] || die 'PIN entries differ; no enrollment was changed.'
+fi
 case "$pin" in ''|*[!0-9]*) die 'PIN must contain 4 to 8 decimal digits.';; esac
 [ "${#pin}" -ge 4 ] && [ "${#pin}" -le 8 ] || die 'PIN must contain 4 to 8 decimal digits.'
 [ "$(identity)" = "$iccid" ] || die 'SIM changed during enrollment; stopping.'
@@ -84,6 +105,13 @@ printf '%s\n' "$iccid" > "$stage/iccid" || exit 1
 pin=
 repeat=
 chmod 600 "$stage/pin" "$stage/iccid" || exit 1
+if [ -n "$profile" ] && [ ! -e "$profile" ]; then
+    [ ! -L "$CONFIG/profiles" ] || die 'Invalid profiles directory.'
+    mkdir -p "$CONFIG/profiles" "$stage/profile" || exit 1
+    chmod 700 "$CONFIG/profiles" "$stage/profile" || exit 1
+    cp "$stage/pin" "$stage/profile/pin" || exit 1
+    cp "$stage/iccid" "$stage/profile/iccid" || exit 1
+fi
 
 # Use the persistent stop guard while updating the pair. A crash must not
 # leave the service able to use a new identity with the previous card's PIN.
@@ -96,8 +124,12 @@ for name in pin iccid; do
     fi
     mv "$stage/$name" "$CONFIG/$name" || exit 1
 done
+if [ -d "$stage/profile" ]; then
+    mv "$stage/profile" "$profile" || exit 1
+fi
 sync
 rm -f "$CONFIG/verification.pending" || exit 1
 sync
+[ -z "$profile_name" ] || printf 'Selected SIM profile: %s\n' "$profile_name"
 printf '%s\n' 'SIM enrolled. No PIN was submitted. Enrollment does not verify PIN correctness.'
 printf '%s\n' 'Keep any attempt marker from this boot; the startup service will run on the next boot.'

@@ -90,8 +90,8 @@ esac''')
         path.write_text(source)
         return path
 
-    def run(self, name="sim-pin-unlock"):
-        return subprocess.run(["/bin/sh", str(self.script(name))],
+    def run(self, name="sim-pin-unlock", arguments=()):
+        return subprocess.run(["/bin/sh", str(self.script(name)), *arguments],
                               env=dict(os.environ, TEST_ROOT=str(self.root)),
                               capture_output=True, timeout=8)
 
@@ -99,7 +99,7 @@ esac''')
         path = self.root / "calls"
         return len(path.read_text().splitlines()) if path.exists() else 0
 
-    def terminal(self, name="enroll-sim-pin", entries=(PIN, PIN)):
+    def terminal(self, name="enroll-sim-pin", entries=(PIN, PIN), arguments=()):
         master, slave = pty.openpty()
 
         def session():
@@ -109,11 +109,11 @@ esac''')
         process = subprocess.Popen(
             [sys.executable, "-c", "\n".join([
                 "import subprocess, sys, termios",
-                "result = subprocess.run(['/bin/sh', sys.argv[1]])",
+                "result = subprocess.run(['/bin/sh', *sys.argv[1:]])",
                 "echo = bool(termios.tcgetattr(0)[3] & termios.ECHO)",
                 "print('TEST_ECHO_ENABLED=' + str(int(echo)), flush=True)",
                 "sys.exit(result.returncode)",
-            ]), str(self.script(name))], stdin=slave, stdout=slave, stderr=slave,
+            ]), str(self.script(name)), *arguments], stdin=slave, stdout=slave, stderr=slave,
             env=dict(os.environ, TEST_ROOT=str(self.root)), preexec_fn=session,
         )
         output = b""

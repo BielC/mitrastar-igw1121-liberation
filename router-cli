@@ -1,0 +1,75 @@
+#!/bin/sh
+# Select a private router-side SIM profile over SSH. Never change Mac networking.
+set -eu
+umask 077
+SOURCE=$(CDPATH= cd "$(dirname "$0")" && pwd)
+
+usage() {
+    printf '%s\n' 'Usage: router-cli PROFILE [user@router]' \
+        'Example: router-cli digi1' \
+        'First use asks privately for the inserted SIM PIN; later uses check its ICCID.' \
+        'Default router: 1234@192.168.8.1. APN settings are unchanged.'
+}
+
+if [ "${1-}" = --help ] || [ "${1-}" = -h ]; then
+    usage
+    exit 0
+fi
+[ "$#" -ge 1 ] && [ "$#" -le 2 ] || { usage >&2; exit 1; }
+profile=$1
+case "$profile" in
+    ''|*[!a-zA-Z0-9_-]*|-*|_*) printf '%s\n' 'Invalid profile name.' >&2; exit 1;;
+esac
+[ "${#profile}" -le 48 ] || { printf '%s\n' 'Profile name is too long.' >&2; exit 1; }
+target=${2:-1234@192.168.8.1}
+case "$target" in
+    ''|-*|*[!a-zA-Z0-9_.@:-]*) printf '%s\n' 'Invalid SSH target.' >&2; exit 1;;
+esac
+[ -f "$SOURCE/router/enroll-sim-pin" ] || { printf '%s\n' 'Keep router-cli beside the router directory.' >&2; exit 1; }
+
+session=$(mktemp -d "${TMPDIR:-/tmp}/router-cli.XXXXXX")
+remote=
+connect() {
+    ssh -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+        -o ControlMaster=auto -o "ControlPath=$session/ssh" -o ControlPersist=60 "$@"
+}
+cleanup() {
+    result=$?
+    trap - EXIT
+    if [ -S "$session/ssh" ]; then
+        if [ -n "$remote" ]; then
+            connect "$target" "rm -rf '$remote'" </dev/null >/dev/null 2>&1 || :
+        fi
+        ssh -o "ControlPath=$session/ssh" -O exit "$target" >/dev/null 2>&1 || :
+    fi
+    rm -rf "$session"
+    exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+
+candidate=$(connect "$target" 'umask 077; mktemp -d /tmp/router-cli.XXXXXX')
+case "$candidate" in
+    /tmp/router-cli.*) ;;
+    *) printf '%s\n' 'Unexpected staging directory; stopping.' >&2; exit 1;;
+esac
+suffix=${candidate#/tmp/router-cli.}
+case "$suffix" in
+    ''|*[!a-zA-Z0-9]*) printf '%s\n' 'Invalid staging directory; stopping.' >&2; exit 1;;
+esac
+remote=$candidate
+
+connect "$target" "cat > '$remote/enroll-sim-pin'" < "$SOURCE/router/enroll-sim-pin"
+connect -t "$target" "
+    test -x /usr/sbin/sim-pin-unlock && test -x /etc/init.d/zzz_sim_pin_unlock || {
+        printf '%s\\n' 'Install the startup service first; see the README.' >&2
+        exit 1
+    }
+    /bin/sh '$remote/enroll-sim-pin' '$profile' || exit 1
+    /etc/init.d/zzz_sim_pin_unlock enable && /etc/init.d/zzz_sim_pin_unlock enabled || exit 1
+    /usr/sbin/sim-pin-unlock
+    result=\$?
+    cat /tmp/sim-pin-unlock/status
+    printf '%s\\n' 'Profile saved for startup. APN settings are unchanged; no reboot was requested.'
+    exit \$result
+"
