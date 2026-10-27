@@ -25,8 +25,64 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual((self.profile / "iccid").read_text().strip(), ICCID)
         for directory in (self.profile, self.profile.parent):
             self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
-        for name in ("pin", "iccid"):
+        for name in ("pin", "iccid", "carrier", "apn", "roaming"):
             self.assertEqual(stat.S_IMODE((self.profile / name).stat().st_mode), 0o600)
+        self.assertEqual(self.router.calls(), 0)
+
+    def test_digi_guidance_is_saved_and_shown_without_reprompting(self):
+        result, output, _ = self.router.terminal(arguments=("digi1",), apn_answers=("1",))
+        self.assertEqual(result, 0, output)
+        self.assertEqual((self.profile / "apn").read_text().strip(), "internet.digimobil.es")
+        self.assertEqual((self.profile / "roaming").read_text().strip(), "enabled")
+        self.assertIn("APN settings have not been changed", output)
+        result = self.router.run("enroll-sim-pin", arguments=("digi1",))
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertIn(b"internet.digimobil.es", result.stdout)
+        self.assertIn(b"Data roaming: enabled", result.stdout)
+        self.assertNotIn(b"Carrier [1-4]", result.stdout)
+        self.assertEqual(self.router.calls(), 0)
+
+    def test_o2_guidance_includes_authentication(self):
+        result, output, _ = self.router.terminal(arguments=("digi1",), apn_answers=("2",))
+        self.assertEqual(result, 0, output)
+        self.assertEqual((self.profile / "apn").read_text().strip(), "telefonica.es")
+        self.assertIn("PAP; username/password: telefonica", output)
+        self.assertEqual(self.router.calls(), 0)
+
+    def test_custom_apn_and_roaming_are_saved_as_data(self):
+        result, output, _ = self.router.terminal(
+            arguments=("digi1",), apn_answers=("3", "mobile.example", "n"))
+        self.assertEqual(result, 0, output)
+        self.assertEqual((self.profile / "apn").read_text().strip(), "mobile.example")
+        self.assertEqual((self.profile / "roaming").read_text().strip(), "disabled")
+        self.assertEqual(self.router.calls(), 0)
+
+    def test_invalid_choice_or_custom_apn_preserves_enrollment(self):
+        for answers in (("9",), ("3", "x';exit", "n"), ("3", "mobile.example", "maybe")):
+            with self.subTest(answers=answers):
+                result, _, echo = self.router.terminal(arguments=("digi1",), apn_answers=answers)
+                self.assertEqual(result, 1)
+                self.assertTrue(echo)
+                self.assertFalse(self.profile.exists())
+                self.assertEqual((self.router.config / "pin").read_text().strip(), PIN)
+                self.assertEqual(self.router.calls(), 0)
+
+    def test_older_profiles_still_work_without_an_apn_prompt(self):
+        self.assertEqual(self.enroll()[0], 0)
+        for name in ("carrier", "apn", "roaming"):
+            (self.profile / name).unlink()
+        result = self.router.run("enroll-sim-pin", arguments=("digi1",))
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertIn(b"No APN choice is saved", result.stdout)
+        self.assertEqual(self.router.calls(), 0)
+
+    def test_invalid_saved_guidance_is_not_interpreted_or_echoed(self):
+        self.assertEqual(self.enroll()[0], 0)
+        (self.profile / "carrier").write_text("custom\n")
+        (self.profile / "apn").write_text("x';exit\n")
+        result = self.router.run("enroll-sim-pin", arguments=("digi1",))
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn(b"x';exit", result.stdout + result.stderr)
         self.assertEqual(self.router.calls(), 0)
 
     def test_saved_profile_activates_without_a_terminal_or_modem_write(self):

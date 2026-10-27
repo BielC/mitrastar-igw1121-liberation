@@ -7,7 +7,8 @@ SOURCE=$(CDPATH= cd "$(dirname "$0")" && pwd)
 usage() {
     printf '%s\n' 'Usage: router-cli PROFILE [user@router]' \
         'Example: router-cli digi1' \
-        'First use asks privately for the inserted SIM PIN; later uses check its ICCID.' \
+        'First use chooses APN guidance and privately asks for the inserted SIM PIN.' \
+        'Later uses check the ICCID and show the saved APN guidance.' \
         'Default router: 1234@192.168.8.1. APN settings are unchanged.'
 }
 

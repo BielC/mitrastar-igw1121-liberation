@@ -112,9 +112,12 @@ also be removed. No vendor file needs restoring because none was overwritten.
 
 Named profiles store their PIN/ICCID pairs in `/etc/sim-pin-unlock/profiles/NAME`.
 The selected pair is copied into the existing active configuration. A name does
-not identify the carrier or change the APN. Use a new name for another SIM or a
-changed PIN; an existing profile is never silently overwritten. Profile selection
-also refuses any unresolved failure guard and preserves the per-boot attempt marker.
+not identify the carrier or change the APN. Onboarding saves `carrier`, `apn`,
+and `roaming` guidance alongside the pair and displays it when selected. Apply
+those settings in the web panel. Older profiles without these fields still work;
+use a new name to choose APN guidance. Use a new name for another SIM or a changed
+PIN too; an existing profile is never silently overwritten. Profile selection
+refuses unresolved failure guards and preserves the per-boot attempt marker.
 
 ## Sharing diagnostics
 

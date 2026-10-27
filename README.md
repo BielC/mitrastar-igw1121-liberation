@@ -64,19 +64,23 @@ After installing the service, select a profile from the repository on your compu
 ./router-cli digi1
 ```
 
-First use asks for the known PIN twice and reads the inserted SIM's ICCID.
-Both are saved in root-only files under `/etc/sim-pin-unlock/profiles/digi1`.
-Later uses select that saved pair without asking for its PIN. A different SIM
-needs another name, such as `digi2`; a mismatched card is refused.
+First use asks which APN to use: **DIGI Spain, O2 Spain, custom, or keep current**.
+It then asks for the known PIN twice and reads the inserted SIM's ICCID.
+The APN choice and PIN/ICCID are saved in root-only files under
+`/etc/sim-pin-unlock/profiles/digi1`. Later uses select the saved pair and show
+the APN guidance without prompting again. A different SIM needs another name,
+such as `digi2`; a mismatched card is refused.
 
 The command enables startup and runs the existing guarded verifier once. It
 never reboots or clears retry guards. If an attempt already happened this boot,
 reboot when convenient. The selected profile works at startup without your computer.
 An optional second argument sets the SSH target: `./router-cli digi1 1234@router.local`.
 
-**Profiles select PIN/ICCID only.** Keep PIN protection enabled and set the carrier
-APN separately. [DIGI Spain](https://www.digimobil.es/configurar-internet) specifies
-`internet.digimobil.es`, mobile data enabled, and data roaming enabled.
+**Apply the displayed APN settings in the router web panel.** The command saves
+and recalls guidance; it does not change the vendor's APN configuration. Keep PIN
+protection enabled. The DIGI preset follows [DIGI Spain's instructions](https://www.digimobil.es/configurar-internet):
+`internet.digimobil.es`, mobile data and data roaming enabled. Older profiles
+without an APN choice keep their current settings; use a new name to choose one.
 
 ## Safeguards and privacy
 

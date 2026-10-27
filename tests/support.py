@@ -99,7 +99,7 @@ esac''')
         path = self.root / "calls"
         return len(path.read_text().splitlines()) if path.exists() else 0
 
-    def terminal(self, name="enroll-sim-pin", entries=(PIN, PIN), arguments=()):
+    def terminal(self, name="enroll-sim-pin", entries=(PIN, PIN), arguments=(), apn_answers=("4",)):
         master, slave = pty.openpty()
 
         def session():
@@ -118,6 +118,14 @@ esac''')
         )
         output = b""
         sent = 0
+        prompts = [b"Known working SIM PIN (hidden): ", b"Repeat PIN (hidden): "]
+        replies = list(entries)
+        if arguments:
+            apn_prompts = [b"Carrier [1-4]: "]
+            if apn_answers and apn_answers[0] == "3":
+                apn_prompts += [b"Custom APN: ", b"Data roaming [y/n]: "]
+            prompts = apn_prompts + prompts
+            replies = list(apn_answers) + replies
         deadline = time.monotonic() + 8
         try:
             while time.monotonic() < deadline:
@@ -130,9 +138,8 @@ esac''')
                     if not data:
                         break
                     output += data
-                prompts = [b"Known working SIM PIN (hidden): ", b"Repeat PIN (hidden): "]
-                if sent < len(entries) and prompts[sent] in output:
-                    os.write(master, (entries[sent] + "\n").encode())
+                if sent < len(replies) and prompts[sent] in output:
+                    os.write(master, (replies[sent] + "\n").encode())
                     sent += 1
                 if process.poll() is not None and not readable:
                     break

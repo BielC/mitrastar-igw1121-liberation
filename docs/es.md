@@ -87,15 +87,20 @@ Para guardar varias tarjetas por nombre, ejecuta desde el repositorio en tu orde
 ./router-cli digi1
 ```
 
-La primera vez pide el PIN dos veces sin mostrarlo y lee el ICCID de la tarjeta
-insertada. Guarda ambos en el router con permisos de root. Las siguientes veces
-selecciona ese registro sin pedir el PIN; si no coincide la SIM, se detiene.
-Usa otro nombre para otra tarjeta, por ejemplo `digi2`.
+La primera vez permite elegir el APN: DIGI España, O2 España, uno personalizado
+o mantener el actual. Después pide el PIN dos veces sin mostrarlo y lee el ICCID
+de la tarjeta insertada. Guarda la elección y el registro en el router con permisos
+de root. Las siguientes veces muestra los ajustes guardados y selecciona el registro
+sin pedir el PIN; si no coincide la SIM, se detiene. Usa otro nombre para otra
+tarjeta, por ejemplo `digi2`.
 
 El comando activa el servicio de arranque y ejecuta el verificador protegido.
 No reinicia el router ni borra las marcas de intentos. El perfil seleccionado
-funciona en los siguientes arranques sin el ordenador. El APN se configura aparte;
-para DIGI España es `internet.digimobil.es`, con datos e itinerancia activados.
+funciona en los siguientes arranques sin el ordenador. Aplica los ajustes de APN
+mostrados en la interfaz web del router; el comando guarda la recomendación, pero
+no modifica la configuración del fabricante. Para DIGI España es
+`internet.digimobil.es`, con datos e itinerancia activados. Los perfiles anteriores
+sin APN guardado conservan sus ajustes; usa otro nombre para elegir uno.
 
 ## Seguridad y límites
 

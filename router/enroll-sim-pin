@@ -12,6 +12,9 @@ stage=
 locked=0
 profile=
 profile_name=${1-}
+carrier=legacy
+apn=
+roaming=unchanged
 
 [ "$#" -le 1 ] || { printf '%s\n' 'Usage: enroll-sim-pin [profile-name]' >&2; exit 1; }
 if [ -n "$profile_name" ]; then
@@ -25,6 +28,69 @@ fi
 die() {
     printf '%s\n' "$1" >&2
     exit 1
+}
+
+validate_apn() {
+    case "$carrier" in
+        digi|o2|custom)
+            case "$apn" in
+                ''|*[!a-zA-Z0-9.-]*|.*|*.) die 'APN must contain only letters, digits, hyphens and dots, without a leading or trailing dot.';;
+            esac
+            [ "${#apn}" -le 100 ] || die 'APN is too long.'
+            ;;
+        unchanged|legacy) [ -z "$apn" ] || die 'Invalid saved APN choice.';;
+        *) die 'Invalid saved carrier choice.';;
+    esac
+    case "$roaming" in
+        enabled|disabled|carrier|unchanged) ;;
+        *) die 'Invalid saved roaming choice.';;
+    esac
+}
+
+choose_apn() {
+    printf '%s\n' 'Choose APN guidance for this SIM profile:' \
+        '  1) DIGI Spain: internet.digimobil.es, data roaming enabled' \
+        '  2) O2 Spain: telefonica.es, PAP, username/password telefonica' \
+        '  3) Custom APN' \
+        '  4) Keep current APN settings' \
+        'The choice is saved as guidance; apply it in the router web panel.' > /dev/tty
+    printf 'Carrier [1-4]: ' > /dev/tty
+    IFS= read -r choice < /dev/tty || exit 1
+    case "$choice" in
+        1) carrier=digi; apn=internet.digimobil.es; roaming=enabled;;
+        2) carrier=o2; apn=telefonica.es; roaming=carrier;;
+        3)
+            carrier=custom
+            printf 'Custom APN: ' > /dev/tty
+            IFS= read -r apn < /dev/tty || exit 1
+            printf 'Data roaming [y/n]: ' > /dev/tty
+            IFS= read -r choice < /dev/tty || exit 1
+            case "$choice" in
+                y|Y|yes|YES) roaming=enabled;;
+                n|N|no|NO) roaming=disabled;;
+                *) die 'Choose y or n for data roaming.';;
+            esac
+            ;;
+        4) carrier=unchanged; apn=; roaming=unchanged;;
+        *) die 'Choose a carrier from 1 to 4; no enrollment was changed.';;
+    esac
+    validate_apn
+}
+
+show_apn() {
+    case "$carrier" in
+        legacy) printf '%s\n' 'No APN choice is saved in this older profile; keep the current router settings.'; return;;
+        unchanged) printf '%s\n' 'APN choice: keep the current router settings.'; return;;
+    esac
+    printf 'Apply in the router web panel: APN %s; mobile data enabled.\n' "$apn"
+    case "$carrier" in
+        o2) printf '%s\n' 'Authentication: PAP; username/password: telefonica.';;
+    esac
+    case "$roaming" in
+        enabled|disabled) printf 'Data roaming: %s.\n' "$roaming";;
+        carrier) printf '%s\n' 'Data roaming: follow your carrier requirements.';;
+    esac
+    printf '%s\n' 'APN guidance saved; the router APN settings have not been changed.'
 }
 
 cleanup() {
@@ -81,8 +147,18 @@ if [ -n "$profile" ] && { [ -e "$profile" ] || [ -L "$profile" ]; }; then
     done
     [ "$(cat "$profile/iccid")" = "$iccid" ] || die 'This profile belongs to another SIM. Use that card or a new profile name.'
     pin=$(cat "$profile/pin") || exit 1
+    if [ -e "$profile/carrier" ] || [ -e "$profile/apn" ] || [ -e "$profile/roaming" ]; then
+        for name in carrier apn roaming; do
+            [ -f "$profile/$name" ] && [ ! -L "$profile/$name" ] || die 'Saved APN guidance is incomplete or contains a symbolic link.'
+        done
+        carrier=$(cat "$profile/carrier") || exit 1
+        apn=$(cat "$profile/apn") || exit 1
+        roaming=$(cat "$profile/roaming") || exit 1
+        validate_apn
+    fi
 else
     tty_mode=$(stty -g < /dev/tty 2>/dev/null) || die 'A terminal is required. Connect using ssh -t.'
+    [ -z "$profile" ] || choose_apn
     stty -echo < /dev/tty || die 'Could not hide terminal input.'
     printf 'Known working SIM PIN (hidden): ' > /dev/tty
     IFS= read -r pin < /dev/tty || exit 1
@@ -111,6 +187,9 @@ if [ -n "$profile" ] && [ ! -e "$profile" ]; then
     chmod 700 "$CONFIG/profiles" "$stage/profile" || exit 1
     cp "$stage/pin" "$stage/profile/pin" || exit 1
     cp "$stage/iccid" "$stage/profile/iccid" || exit 1
+    printf '%s\n' "$carrier" > "$stage/profile/carrier" || exit 1
+    printf '%s\n' "$apn" > "$stage/profile/apn" || exit 1
+    printf '%s\n' "$roaming" > "$stage/profile/roaming" || exit 1
 fi
 
 # Use the persistent stop guard while updating the pair. A crash must not
@@ -130,6 +209,9 @@ fi
 sync
 rm -f "$CONFIG/verification.pending" || exit 1
 sync
-[ -z "$profile_name" ] || printf 'Selected SIM profile: %s\n' "$profile_name"
+if [ -n "$profile_name" ]; then
+    printf 'Selected SIM profile: %s\n' "$profile_name"
+    show_apn
+fi
 printf '%s\n' 'SIM enrolled. No PIN was submitted. Enrollment does not verify PIN correctness.'
 printf '%s\n' 'Keep any attempt marker from this boot; the startup service will run on the next boot.'
